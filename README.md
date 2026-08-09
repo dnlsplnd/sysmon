@@ -13,6 +13,25 @@ python3 -m sysmon --history 600    # keep 10 minutes of history at 1 s
 Only one instance runs at a time. Launching again raises the existing window,
 and `--page` switches it rather than being ignored.
 
+## System tray
+
+While running, the monitor sits in the tray. Closing the window hides it there
+instead of quitting — sampling continues, so the graphs are already filled in
+when it comes back. A left click on the icon toggles the window, and the menu
+offers *Show System Monitor* and *Quit*. Hovering shows current CPU, RAM and
+GPU load, refreshed well below the sampling rate because each update costs a
+signal plus a property read.
+
+GTK 4 has no tray API, and libappindicator links against GTK 3, which cannot
+share a process with GTK 4. The `StatusNotifierItem` protocol underneath it is
+small, so `ui/tray.py` speaks it directly over Gio — the icon on
+`org.kde.StatusNotifierItem`, and its menu as a second object on
+`com.canonical.dbusmenu`, since the spec carries only a path to the menu.
+
+The window closes to the tray **only** once a watcher has accepted the
+registration. On a desktop with no tray the close button keeps quitting, rather
+than hiding the window somewhere it could never be recovered from.
+
 Requires `python3-gobject`, GTK 4, libadwaita, `pycairo` and `psutil` — all
 present on a stock Fedora KDE/GNOME install.
 

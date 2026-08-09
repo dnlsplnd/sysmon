@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .pages import PAGE_CLASSES  # noqa: E402
+from .tray import TrayIcon  # noqa: E402
 from ..hub import Hub  # noqa: E402
 from ..util import fmt_duration, fmt_pct, fmt_rate  # noqa: E402
 
@@ -256,6 +257,12 @@ class SysmonWindow(Adw.ApplicationWindow):
     # ------------------------------------------------------------ update loop
 
     def _on_snapshot(self, snapshot: dict[str, Any]) -> None:
+        # Sitting in the tray, nothing on screen is worth redrawing; the
+        # history buffers keep filling either way, so the graphs are complete
+        # the moment the window comes back.
+        if not self.get_visible():
+            return
+
         visible = self.stack.get_visible_child()
         for page in self.pages:
             # Only the visible page is redrawn; the others catch up from the
@@ -306,6 +313,8 @@ class SysmonApplication(Adw.Application):
         self.hub = Hub(interval=interval, capacity=capacity)
         self.start_page = start_page
         self.window: SysmonWindow | None = None
+        self.tray: TrayIcon | None = None
+        self._tooltip_due = 0.0
 
     def do_command_line(self, command_line: Gio.ApplicationCommandLine) -> int:
         """Handle argv, whether we are the first instance or a later one."""
@@ -352,13 +361,90 @@ class SysmonApplication(Adw.Application):
             Adw.StyleManager.get_default().connect(
                 "notify::dark", lambda *_: self._redraw()
             )
+            self._start_tray()
         self.window.present()
 
     def _redraw(self) -> None:
         if self.window is not None:
             self.window.queue_draw()
 
+    # ------------------------------------------------------------------- tray
+
+    def _start_tray(self) -> None:
+        """Publish the tray icon, and close to it if a tray took the icon."""
+        tray = TrayIcon(
+            icon_name=resolve_icon(
+                ("utilities-system-monitor", "org.kde.plasma-systemmonitor"),
+                "utilities-system-monitor",
+            ),
+            title="System Monitor",
+            on_activate=self._toggle_window,
+            on_show=self._show_window,
+            on_quit=self._quit_from_tray,
+        )
+        if not tray.start():
+            return
+        self.tray = tray
+        # Only intercept the close button once there is somewhere to close to.
+        # The handler re-checks, because the watcher accepts the registration
+        # asynchronously and may yet refuse it.
+        if self.window is not None:
+            self.window.connect("close-request", self._on_close_request)
+        self.hub.subscribe(self._on_tray_snapshot)
+
+    def _on_close_request(self, window: SysmonWindow) -> bool:
+        """Hide to the tray instead of quitting. True stops the destroy."""
+        if self.tray is None or not self.tray.available:
+            return False
+        window.set_visible(False)
+        return True
+
+    def _toggle_window(self) -> None:
+        if self.window is None:
+            return
+        if self.window.get_visible():
+            self.window.set_visible(False)
+        else:
+            self._show_window()
+
+    def _show_window(self) -> None:
+        if self.window is not None:
+            self.window.set_visible(True)
+            self.window.present()
+
+    def _quit_from_tray(self) -> None:
+        if self.tray is not None:
+            self.tray.stop()
+        self.quit()
+
+    def _on_tray_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """Keep the hover text current, but well below the sampling rate.
+
+        Every update is a signal plus the host reading the property back, so
+        this is deliberately much slower than the graphs.
+        """
+        if self.tray is None or not self.tray.available:
+            return
+        now = GLib.get_monotonic_time() / 1e6
+        if now < self._tooltip_due:
+            return
+        self._tooltip_due = now + 5.0
+
+        cpu = (snapshot.get("cpu") or {}).get("usage")
+        memory = (snapshot.get("memory") or {}).get("percent")
+        parts = [f"CPU {fmt_pct(cpu)}", f"RAM {fmt_pct(memory)}"]
+
+        # "busy" is per card, and is already the busiest engine on it rather
+        # than a sum, so the busiest card is the one figure worth showing.
+        cards = (snapshot.get("gpu") or {}).get("cards") or []
+        busy = [card["busy"] for card in cards if card.get("busy") is not None]
+        if busy:
+            parts.append(f"GPU {fmt_pct(max(busy))}")
+        self.tray.set_tooltip("   ·   ".join(parts))
+
     def do_shutdown(self) -> None:
+        if self.tray is not None:
+            self.tray.stop()
         self.hub.stop()
         Adw.Application.do_shutdown(self)
 
