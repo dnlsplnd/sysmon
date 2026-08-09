@@ -42,7 +42,15 @@ def main() -> int:
     # --page work when an instance is already running.
     options = parse_args(sys.argv)
 
-    from .ui.app import SysmonApplication
+    from gi.repository import GLib
+
+    from .ui.app import APP_ID, SysmonApplication
+
+    # Under Wayland the compositor identifies the window by prgname, which
+    # otherwise ends up as "__main__.py" for a `python3 -m` launch. Plasma
+    # matches a window to its .desktop file by that name, so leaving it wrong
+    # costs the taskbar icon and window grouping.
+    GLib.set_prgname(APP_ID)
 
     application = SysmonApplication(
         interval=options.interval,
