@@ -152,10 +152,10 @@ and is simply absent rather than faked.
 
 A monitor that perturbs what it measures is not much use, so the sampling budget
 is watched. Measured over 60 ticks at the default one-second interval on this box
-(Ryzen 1700X, 16 threads, 425 processes), idle and again against sixteen busy
-loops. Idle figures are the range over two runs:
+(Ryzen 1700X, 16 threads, ~415 processes), idle and again against sixteen busy
+loops. Idle was run twice; a range appears where the two disagreed:
 
-> Measured 2026-08-10 — sysmon 1.0.0 at commit `a595d66`, Linux 7.1.7 (Fedora
+> Measured 2026-08-10 — sysmon 1.0.0 at commit `c700358`, Linux 7.1.7 (Fedora
 > 44), Python 3.14.6. Every figure here is specific to this hardware and kernel,
 > and to the rails and DRM clients this box happens to have; treat them as the
 > shape of the cost rather than as numbers to expect elsewhere. `make bench`
@@ -164,14 +164,14 @@ loops. Idle figures are the range over two runs:
 
 | Collector | Idle median | Idle p95 | Loaded median | Loaded p95 |
 |---|---|---|---|---|
-| Network | 4.5 ms | 5.0 ms | 9.1 ms | 11 ms |
-| GPU | 4.4 ms | 23 ms | 6.4 ms | 37 ms |
-| CPU | 1.4 ms | 1.5 ms | 1.0 ms | 1.1 ms |
+| Network | 4.6 ms | 4.9 ms | 9.1 ms | 12 ms |
+| GPU | 4.4 ms | 23 ms | 6.5 ms | 38 ms |
+| CPU | 1.4 ms | 1.5 ms | 1.0 ms | 1.8 ms |
 | Disks | 1.1 ms | 14 ms | 0.9 ms | 13 ms |
-| Processes *(page closed)* | 0.7 ms | 1.0 ms | 0.7 ms | 3.5 ms |
-| Sensors | 0.3 ms | 56–68 ms | 0.2 ms | 27 ms |
+| Processes *(page closed)* | 0.7 ms | 0.8 ms | 0.7 ms | 3.5 ms |
+| Sensors | 0.3 ms | 26–42 ms | 0.2 ms | 45 ms |
 | Memory | 0.3 ms | 0.3 ms | 0.2 ms | 0.2 ms |
-| **whole tick** | **13 ms** | **78–80 ms** | **21 ms** | **85 ms** |
+| **whole tick** | **14 ms** | **62–73 ms** | **22 ms** | **93 ms** |
 
 The whole tick is dearer than the sum of the medians because the collectors that
 defer work do not defer it to the *same* tick, so most ticks carry somebody's
@@ -214,18 +214,19 @@ box's Wi-Fi temperature (`mt7921`) reads in 1 ms and, every few seconds, in
 90–110 ms. It passes the startup check honestly and would then dominate the tail.
 So the cost of every unthrottled read is watched as well, and a rail that blows
 the threshold three times within twenty reads joins the throttled set. The Wi-Fi
-rail gets there about eleven seconds in, which takes the sensors 95th percentile
-from ~90 ms down to ~60 and the median tick from 1.7 ms to 0.4 ms. Promotion is
-one way only: a rail that has shown it can stall has not stopped being able to.
+rail gets there about eleven seconds in, which took the sensors 95th percentile
+from ~90 ms to the 26–42 above, and its median contribution from 1.7 ms to
+0.3 ms. Promotion is one way only: a rail that has shown it can stall has not
+stopped being able to.
 
 Opening the Processes page changes the picture entirely:
 
 | | Idle | Loaded |
 |---|---|---|
-| the table alone | 80 ms | 170 ms |
-| whole tick | 90 ms | 201 ms |
+| the table alone | 79 ms | 196 ms |
+| whole tick | 89 ms | 217 ms |
 
-Seven times the idle cheap path, and the one figure here large enough to be felt.
+Six times the idle cheap path, and the one figure here large enough to be felt.
 That is the whole reason the table is built only while that page is on screen.
 
 The first working version cost 183 ms per tick unconditionally. What bought the
