@@ -132,8 +132,10 @@ class TrayIcon:
         on_activate: Callable[[], None],
         on_show: Callable[[], None],
         on_quit: Callable[[], None],
+        icon_theme_path: str = "",
     ) -> None:
         self.icon_name = icon_name
+        self.icon_theme_path = icon_theme_path
         self.title = title
         self._on_activate = on_activate
         self._on_show = on_show
@@ -264,7 +266,13 @@ class TrayIcon:
             return GLib.Variant("i", 0)
         if name == "IconName":
             return GLib.Variant("s", self.icon_name)
-        if name in ("IconThemePath", "AttentionIconName", "OverlayIconName"):
+        if name == "IconThemePath":
+            # The host resolves IconName against its own icon theme, not ours,
+            # so an icon that is only bundled with the package -- a checkout
+            # that was never installed -- would be a blank in the panel. This
+            # is the spec's way to point the host at it.
+            return GLib.Variant("s", self.icon_theme_path)
+        if name in ("AttentionIconName", "OverlayIconName"):
             return GLib.Variant("s", "")
         if name == "ToolTip":
             # (icon name, pixmaps, title, body) -- Plasma renders title bold

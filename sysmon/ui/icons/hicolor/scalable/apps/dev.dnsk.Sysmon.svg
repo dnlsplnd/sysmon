@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Application icon. Deliberately one shape and one accent: at 16px in a tray
+     or a taskbar, a monitor bezel with something drawn inside it collapses into
+     a grey smudge, whereas a single heavy trace stays readable. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#1c71d8"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#base)"/>
+  <!-- Filled area first, so the trace sits on top of its own shading. -->
+  <path d="M28 80 L46 64 L60 72 L78 44 L92 56 L100 38 L100 92 L28 92 Z"
+        fill="#ffffff" fill-opacity="0.26"/>
+  <path d="M28 80 L46 64 L60 72 L78 44 L92 56 L100 38"
+        fill="none" stroke="#ffffff" stroke-width="8"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -4,14 +4,46 @@ A native GTK4/libadwaita system monitor. Everything is read straight from
 `/proc`, `/sys` and DRM `fdinfo`; graphs are drawn with Cairo.
 
 ```
-python3 -m sysmon                  # or ./sysmon.sh
-python3 -m sysmon --page GPU       # open on a specific page
-python3 -m sysmon --interval 0.5   # sample twice a second
-python3 -m sysmon --history 600    # keep 10 minutes of history at 1 s
+sysmon                  # installed; ./sysmon.sh runs a checkout in place
+sysmon --page GPU       # open on a specific page
+sysmon --interval 0.5   # sample twice a second
+sysmon --history 600    # keep 10 minutes of history at 1 s
+sysmon --hidden         # start in the tray, without a window
 ```
 
 Only one instance runs at a time. Launching again raises the existing window,
 and `--page` switches it rather than being ignored.
+
+## Installing
+
+```
+make install                    # into ~/.local, no root needed
+make install PREFIX=/usr/local  # anywhere else; DESTDIR is honoured
+make uninstall
+```
+
+This puts the package under `$PREFIX/lib/sysmon`, a `sysmon` launcher on the
+path, the desktop entry, and the application icon into `hicolor`. Nothing in
+the repository names an absolute path: the launcher's `PYTHONPATH` and the
+desktop entry's `Exec` are substituted into the templates in `packaging/` at
+install time, which is the only reason there is a build step at all.
+
+The package goes outside `site-packages` deliberately. It is an application
+rather than a library, and the launcher putting one directory on `PYTHONPATH`
+is easier to reason about — and to remove — than a scattered install.
+
+Right-clicking the launcher entry jumps straight to Processes, GPU or Sensors,
+because `--page` reaches an instance that is already running.
+
+```
+make install-autostart          # start in the tray at login
+make uninstall-autostart
+```
+
+The autostart entry passes `--hidden`, which goes to the tray without opening a
+window, so history is already filled in the first time it is opened. If no tray
+accepts the icon it presents the window after all, rather than starting
+somewhere it could never be reached.
 
 ## System tray
 
@@ -31,6 +63,12 @@ small, so `ui/tray.py` speaks it directly over Gio — the icon on
 The window closes to the tray **only** once a watcher has accepted the
 registration. On a desktop with no tray the close button keeps quitting, rather
 than hiding the window somewhere it could never be recovered from.
+
+The host resolves the icon name against *its* icon theme, not ours, so a
+checkout that was never installed would show a blank in the panel — the icon
+exists only inside the package at that point. `IconThemePath` is the spec's
+answer to exactly this, and is set to the bundled icon directory, so the tray
+icon is right whether or not `make install` has been run.
 
 Requires `python3-gobject`, GTK 4, libadwaita, `pycairo` and `psutil` — all
 present on a stock Fedora KDE/GNOME install.
@@ -54,7 +92,9 @@ Sidebar icon names are not portable between icon themes — there is no
 `processor-symbolic` or `temperature-symbolic` on Breeze, and no
 `monitor-symbolic` on Adwaita — and GTK draws a missing icon as a blank rather
 than falling back. Each page therefore lists the names it knows and the first
-one the installed theme actually has is used. A symbolic CPU icon is bundled
+one the installed theme actually has is used. The application's own icon is
+bundled the same way, so it is correct in the window and the tray before it is
+installed anywhere. A symbolic CPU icon is bundled
 under `ui/icons/`, because Breeze ships only a full-colour one that looks wrong
 beside a column of monochrome icons.
 
@@ -128,9 +168,11 @@ sysmon/
   ui/
     widgets/      Cairo chart widgets (graph, sparkline, gauge, meter, heatmap)
     pages/        one module per page
+    icons/        bundled icons, laid out as a real theme directory
     theme.py      colour roles, light and dark
   hub.py          sampling thread; history is written on the GTK main thread
   history.py      fixed-length series behind every graph
+packaging/        launcher, desktop and autostart templates; Makefile fills them in
 ```
 
 The threading contract is narrow on purpose: the worker thread only touches

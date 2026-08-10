@@ -1,0 +1,10 @@
+#!/bin/sh
+# Launcher, generated from this template by `make install`.
+#
+# The package is installed outside site-packages -- it is an application, not a
+# library, and nothing should be able to `import sysmon` by accident -- so its
+# directory goes on PYTHONPATH here rather than being dropped where the
+# interpreter already looks.
+PYTHONPATH="@LIBDIR@${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec @PYTHON@ -m sysmon "$@"

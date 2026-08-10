@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=System Monitor
+Comment=Start the system monitor in the tray at login
+Icon=dev.dnsk.Sysmon
+# --hidden goes straight to the tray, so history is already filled in by the
+# time the window is first opened. It presents the window anyway if no tray
+# accepts the icon, rather than starting somewhere unreachable.
+Exec=@BINDIR@/sysmon --hidden
+Terminal=false
+StartupNotify=false
+StartupWMClass=dev.dnsk.Sysmon
+X-GNOME-Autostart-enabled=true

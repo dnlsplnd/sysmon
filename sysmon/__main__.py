@@ -33,6 +33,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=300,
         help="samples of history to keep per series (default: 300)",
     )
+    parser.add_argument(
+        "--hidden",
+        action="store_true",
+        help="start in the tray without opening the window (used at login)",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -56,6 +61,7 @@ def main() -> int:
         interval=options.interval,
         capacity=options.history,
         start_page=options.page,
+        start_hidden=options.hidden,
     )
     return application.run(sys.argv)
 

@@ -36,6 +36,17 @@ _CSS = """
 """
 
 
+def bundled_icon_path() -> str:
+    """The package's own icon theme root, or "" if it is not there.
+
+    Laid out as a real theme directory (``icons/hicolor/scalable/...``) rather
+    than a flat folder of files, because both consumers -- GTK's search path
+    and the tray host's -- expect to find themes underneath it.
+    """
+    icons = Path(__file__).parent / "icons"
+    return str(icons) if icons.is_dir() else ""
+
+
 def register_bundled_icons() -> None:
     """Add this package's icons to the theme search path.
 
@@ -43,14 +54,16 @@ def register_bundled_icons() -> None:
     inheritance chain, so bundled names resolve everywhere without overriding
     anything the user's theme provides. Used where no theme offers a symbolic
     icon we need -- Breeze's only CPU icon is a full-colour device icon, which
-    looks wrong beside a column of monochrome ones.
+    looks wrong beside a column of monochrome ones -- and for the application's
+    own icon, which is bundled so a checkout runs with it before it is
+    installed into a system icon directory.
     """
     display = Gdk.Display.get_default()
     if display is None:
         return
-    icons = Path(__file__).parent / "icons"
-    if icons.is_dir():
-        Gtk.IconTheme.get_for_display(display).add_search_path(str(icons))
+    icons = bundled_icon_path()
+    if icons:
+        Gtk.IconTheme.get_for_display(display).add_search_path(icons)
 
 
 def resolve_icon(candidates: tuple[str, ...], fallback: str) -> str:
@@ -302,6 +315,7 @@ class SysmonApplication(Adw.Application):
         interval: float = 1.0,
         capacity: int = 300,
         start_page: str = "Overview",
+        start_hidden: bool = False,
     ) -> None:
         # HANDLES_COMMAND_LINE so a second launch reaches the running instance
         # instead of being dropped. Without it GApplication forwards a bare
@@ -312,6 +326,7 @@ class SysmonApplication(Adw.Application):
         )
         self.hub = Hub(interval=interval, capacity=capacity)
         self.start_page = start_page
+        self.start_hidden = start_hidden
         self.window: SysmonWindow | None = None
         self.tray: TrayIcon | None = None
         self._tooltip_due = 0.0
@@ -339,6 +354,9 @@ class SysmonApplication(Adw.Application):
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
         register_bundled_icons()
+        # Wayland takes the window icon from the desktop entry via prgname, but
+        # X11 and the Files/portal dialogs read this instead.
+        Gtk.Window.set_default_icon_name(APP_ID)
         provider = Gtk.CssProvider()
         provider.load_from_string(_CSS)
         Gtk.StyleContext.add_provider_for_display(
@@ -362,7 +380,31 @@ class SysmonApplication(Adw.Application):
                 "notify::dark", lambda *_: self._redraw()
             )
             self._start_tray()
+            if self.start_hidden:
+                # Only the first launch may stay hidden. Launching again is a
+                # deliberate request to see the window, so the flag is spent.
+                self.start_hidden = False
+                self._stay_in_tray()
+                return
         self.window.present()
+
+    def _stay_in_tray(self) -> None:
+        """Start without a window -- unless nothing is going to draw the icon.
+
+        Whether there is a tray to hide in is not known yet: the watcher accepts
+        the registration asynchronously, and may still refuse it. A window left
+        hidden with no tray icon could never be recovered, so it is presented
+        after a grace period if the registration has not landed by then.
+        """
+        if self.tray is None:
+            self.window.present()
+            return
+        GLib.timeout_add_seconds(3, self._present_unless_tray_took_it)
+
+    def _present_unless_tray_took_it(self) -> bool:
+        if self.window is not None and (self.tray is None or not self.tray.available):
+            self.window.present()
+        return GLib.SOURCE_REMOVE
 
     def _redraw(self) -> None:
         if self.window is not None:
@@ -374,13 +416,14 @@ class SysmonApplication(Adw.Application):
         """Publish the tray icon, and close to it if a tray took the icon."""
         tray = TrayIcon(
             icon_name=resolve_icon(
-                ("utilities-system-monitor", "org.kde.plasma-systemmonitor"),
+                (APP_ID, "utilities-system-monitor", "org.kde.plasma-systemmonitor"),
                 "utilities-system-monitor",
             ),
             title="System Monitor",
             on_activate=self._toggle_window,
             on_show=self._show_window,
             on_quit=self._quit_from_tray,
+            icon_theme_path=bundled_icon_path(),
         )
         if not tray.start():
             return

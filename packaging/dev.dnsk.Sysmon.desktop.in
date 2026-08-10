@@ -1,0 +1,29 @@
+[Desktop Entry]
+Type=Application
+Name=System Monitor
+GenericName=Resource Monitor
+Comment=CPU, memory, GPU, disk, network and sensor monitoring
+Icon=dev.dnsk.Sysmon
+Exec=@BINDIR@/sysmon
+Terminal=false
+Categories=System;Monitor;
+Keywords=system;monitor;cpu;memory;gpu;disk;network;sensors;process;
+StartupNotify=true
+# Plasma matches a window to this entry by prgname, which __main__ sets to the
+# application id; without the match the taskbar shows a generic icon.
+StartupWMClass=dev.dnsk.Sysmon
+Actions=processes;gpu;sensors;
+
+# --page reaches an already-running instance and switches it, so these jump
+# straight to a page whether or not the monitor is open.
+[Desktop Action processes]
+Name=Processes
+Exec=@BINDIR@/sysmon --page Processes
+
+[Desktop Action gpu]
+Name=GPU
+Exec=@BINDIR@/sysmon --page GPU
+
+[Desktop Action sensors]
+Name=Sensors
+Exec=@BINDIR@/sysmon --page Sensors
