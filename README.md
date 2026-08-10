@@ -143,6 +143,13 @@ page cache is not counted as used.
 `temp2_max` as 65261 °C to mean "no limit", and scaling a bar against that makes
 every reading look like nothing.
 
+**Sensor rails are reported literally**, including the zeroes. A power-gated
+device answers 0 for rails it cannot currently measure — the Intel GPU's `in0`
+voltage reads 0.000 V in RC6, the same gating that makes `gt_act_freq_mhz` read
+0. The GPU page substitutes the requested clock there because a running GPU
+cannot be at 0 Hz, but the Sensors page does not guess: it shows every hwmon rail
+the kernel exposes, generically, and a voltage genuinely can be zero.
+
 Anything that needs root — DIMM part numbers via `dmidecode`, SMART health via
 `smartctl` — is behind an explicit button that goes through `pkexec`, never a
 prompt at startup. CPU package power via RAPL is root-only on current kernels
@@ -267,12 +274,17 @@ since that is where a plausible-looking wrong answer is easiest to produce —
 de-duplicated by `drm-client-id`, the busiest engine rather than the sum, busy
 time normalised by engine capacity, a gated clock falling back rather than
 reporting 0 MHz, memory used as total minus *available*, disk utilisation from
-the `io_ticks` delta, and the 65261 °C threshold being rejected as a sentinel.
+the `io_ticks` delta, `/proc/stat` counters divided by the elapsed time rather
+than reported per tick, the 65261 °C threshold being rejected as a sentinel, and
+both halves of the sensor throttling decision — classification by the median of
+several probes, and promotion of a rail that keeps blowing the threshold.
 
-The suite is checked by mutation: breaking de-duplication, reversing the
+The suite is checked by mutation. Breaking de-duplication, reversing the
 frequency preference, computing used memory from free, accepting implausible
-thresholds, changing the sector size, and removing the guard on a counter going
-backwards are each caught by a test that names the behaviour.
+thresholds, changing the sector size, removing the guard on a counter going
+backwards, timing a rail once instead of three times, disabling promotion, and
+letting the promotion window grow without bound are each caught by a test that
+names the behaviour.
 
 CI runs it on every push, across three Python versions, with nothing installed
 but `pytest` and `psutil` — the UI is never imported, so no GTK is involved. It
