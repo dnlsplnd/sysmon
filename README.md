@@ -152,28 +152,47 @@ and is simply absent rather than faked.
 
 A monitor that perturbs what it measures is not much use, so the sampling budget
 is watched. Measured over 60 ticks at the default one-second interval on this box
-(Ryzen 1700X, 16 threads, 456 processes), while it happened to be busy with an
-unrelated job at load average ~22 — an idle machine is faster throughout:
+(Ryzen 1700X, 16 threads), twice: once idle at 425 processes, and once at 456
+processes while a 16-thread video render held the load average at ~22.
 
-| Collector | Median | p95 |
+| Collector | Idle median | Idle p95 | Loaded median | Loaded p95 |
+|---|---|---|---|---|
+| Network | 4.6 ms | 4.8 ms | 4.2 ms | 7 ms |
+| GPU | 4.3 ms | 25 ms | 9.3 ms | 39 ms |
+| CPU | 1.4 ms | 1.5 ms | 1.1 ms | 1.4 ms |
+| Sensors | 1.3 ms | 57 ms | 1.6 ms | 104 ms |
+| Disks | 1.1 ms | 13 ms | 1.0 ms | 13 ms |
+| Processes *(page closed)* | 0.8 ms | 0.9 ms | 0.9 ms | 1.2 ms |
+| Memory | 0.3 ms | 0.3 ms | 0.2 ms | 0.3 ms |
+| **whole tick** | **14 ms** | **89 ms** | **35 ms** | **124 ms** |
+
+Both columns are worth keeping, because a system monitor is most often looked at
+precisely when the machine is busy. A tick costs 14 ms on a quiet box and 35 ms
+on a fully loaded one — and nearly all of that difference is the GPU collector,
+whose `/proc` walk is the only part of a tick that contends with other processes
+for the same directory reads. Network, disks and memory barely move: they are
+bound by a fixed number of syscalls rather than by what else is running.
+
+The gap between median and p95 is design rather than noise. Several collectors
+defer expensive work to every fourth or fifth tick, so most ticks skip it and the
+occasional one pays for all of them at once. The single number this section used
+to quote averaged that away, and said nothing about which page was open.
+
+Sensors is the row worth reading twice: load roughly doubles its p95, but does
+not explain it. An NVMe composite temperature is a command round-trip to the
+drive controller and costs tens of milliseconds whatever else the machine is
+doing. That is an inherent cost of the reading, not contention, and it is why
+those rails are timed at startup and then polled every fifth tick.
+
+Opening the Processes page changes the picture entirely:
+
+| | Idle | Loaded |
 |---|---|---|
-| GPU | 9.3 ms | 39 ms |
-| Network | 4.2 ms | 7 ms |
-| Sensors | 1.6 ms | 104 ms |
-| CPU | 1.1 ms | 1.4 ms |
-| Disks | 1.0 ms | 13 ms |
-| Processes *(page closed)* | 0.9 ms | 1.2 ms |
-| Memory | 0.2 ms | 0.3 ms |
-| **whole tick** | **35 ms** | **124 ms** |
+| the table alone | 82 ms | 116 ms |
+| whole tick | 100 ms | 149 ms |
 
-The gap between median and p95 is design rather than noise: several collectors
-defer their expensive work to every fourth or fifth tick, so most ticks skip it
-and the occasional one pays for all of them at once. The single number this
-section used to quote hid that, and hid which page was open.
-
-Opening the Processes page changes the picture completely — the table costs
-**~116 ms** on its own and takes the tick to **~149 ms**, four times the cheap
-path. That is the whole reason it is built only while that page is on screen.
+Seven times the idle cheap path, and the one figure here large enough to be felt.
+That is the whole reason the table is built only while that page is on screen.
 
 The first working version cost 183 ms per tick unconditionally. What bought the
 difference:
