@@ -1,6 +1,7 @@
 # sysmon
 
 [![tests](https://github.com/dnlsplnd/sysmon/actions/workflows/tests.yml/badge.svg)](https://github.com/dnlsplnd/sysmon/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A native GTK4/libadwaita system monitor. Everything is read straight from
 `/proc`, `/sys` and DRM `fdinfo`; graphs are drawn with Cairo.
@@ -226,3 +227,8 @@ Chart colours follow a palette validated for colour-vision deficiency in both
 light and dark modes; series are assigned fixed slots so filtering one out never
 repaints the others. Per-core load and similar magnitude encodings use a
 single-hue ramp rather than categorical colours.
+
+## License
+
+MIT — see [LICENSE](LICENSE). GTK 4, libadwaita and PyGObject are LGPL and
+`psutil` is BSD, so none of the dependencies constrain what you do with this.
