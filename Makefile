@@ -28,7 +28,7 @@ AUTOSTARTDIR ?= $(HOME)/.config/autostart
 ICON := sysmon/ui/icons/hicolor/scalable/apps/$(APP_ID).svg
 
 .PHONY: help install uninstall install-autostart uninstall-autostart \
-        update-caches run test check
+        update-caches run test check bench
 
 help:
 	@echo 'make install              install to $(PREFIX)'
@@ -39,6 +39,7 @@ help:
 	@echo 'make run                 run from this checkout, without installing'
 	@echo 'make test                run the test suite'
 	@echo 'make check               byte-compile and sample every collector once'
+	@echo 'make bench               measure what a sampling tick costs'
 
 install:
 	@echo '  package   -> $(DESTDIR)$(LIBDIR)/sysmon'
@@ -107,6 +108,11 @@ run:
 # have any particular hardware nor notices what it does have.
 test:
 	@$(PYTHON) -m pytest
+
+# Produces the figures in the README's Cost section. BENCH_ARGS passes through,
+# e.g. `make bench BENCH_ARGS="--ticks 120 --markdown"`.
+bench:
+	@$(PYTHON) tools/bench.py $(BENCH_ARGS)
 
 # Complements `test`: this one samples the real kernel, so it catches a format
 # this box actually has that the fixtures do not cover.

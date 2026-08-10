@@ -158,8 +158,9 @@ loops. Idle figures are the range over two runs:
 > Measured 2026-08-10 — sysmon 1.0.0 at commit `a595d66`, Linux 7.1.7 (Fedora
 > 44), Python 3.14.6. Every figure here is specific to this hardware and kernel,
 > and to the rails and DRM clients this box happens to have; treat them as the
-> shape of the cost rather than as numbers to expect elsewhere. They need
-> re-taking whenever a collector changes what it reads.
+> shape of the cost rather than as numbers to expect elsewhere. `make bench`
+> reproduces them and prints its own provenance header; re-take them whenever a
+> collector changes what it reads.
 
 | Collector | Idle median | Idle p95 | Loaded median | Loaded p95 |
 |---|---|---|---|---|
@@ -292,6 +293,7 @@ sysmon/
   history.py      fixed-length series behind every graph
 packaging/        launcher, desktop and autostart templates; Makefile fills them in
 tests/            one module per collector; conftest.py builds the fake kernel
+tools/bench.py    the Cost section above, reproducible: `make bench`
 ```
 
 The threading contract is narrow on purpose: the worker thread only touches
