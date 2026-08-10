@@ -152,19 +152,21 @@ and is simply absent rather than faked.
 
 A monitor that perturbs what it measures is not much use, so the sampling budget
 is watched. Measured over 60 ticks at the default one-second interval on this box
-(Ryzen 1700X, 16 threads), twice: once idle at 425 processes, and once at 456
-processes while a 16-thread video render held the load average at ~22.
+(Ryzen 1700X, 16 threads): idle at 425 processes, and at 456 processes while a
+16-thread video render held the load average at ~22. The idle column is the
+range across two runs, which is where the figures reproduce and where they do
+not.
 
 | Collector | Idle median | Idle p95 | Loaded median | Loaded p95 |
 |---|---|---|---|---|
-| Network | 4.6 ms | 4.8 ms | 4.2 ms | 7 ms |
-| GPU | 4.3 ms | 25 ms | 9.3 ms | 39 ms |
+| Network | 4.5 ms | 4.8 ms | 4.2 ms | 7 ms |
+| GPU | 4.3 ms | 23–25 ms | 9.3 ms | 39 ms |
 | CPU | 1.4 ms | 1.5 ms | 1.1 ms | 1.4 ms |
-| Sensors | 1.3 ms | 57 ms | 1.6 ms | 104 ms |
-| Disks | 1.1 ms | 13 ms | 1.0 ms | 13 ms |
+| Sensors | 0.3–1.3 ms | 30–57 ms | 1.6 ms | 104 ms |
+| Disks | 1.1 ms | 13–14 ms | 1.0 ms | 13 ms |
 | Processes *(page closed)* | 0.8 ms | 0.9 ms | 0.9 ms | 1.2 ms |
 | Memory | 0.3 ms | 0.3 ms | 0.2 ms | 0.3 ms |
-| **whole tick** | **14 ms** | **89 ms** | **35 ms** | **124 ms** |
+| **whole tick** | **13–14 ms** | **72–89 ms** | **35 ms** | **124 ms** |
 
 Both columns are worth keeping, because a system monitor is most often looked at
 precisely when the machine is busy. A tick costs 14 ms on a quiet box and 35 ms
@@ -178,11 +180,17 @@ defer expensive work to every fourth or fifth tick, so most ticks skip it and th
 occasional one pays for all of them at once. The single number this section used
 to quote averaged that away, and said nothing about which page was open.
 
-Sensors is the row worth reading twice: load roughly doubles its p95, but does
-not explain it. An NVMe composite temperature is a command round-trip to the
-drive controller and costs tens of milliseconds whatever else the machine is
-doing. That is an inherent cost of the reading, not contention, and it is why
+Sensors is the row worth reading twice. Load roughly doubles its p95 but does not
+explain it: an NVMe composite temperature is a command round-trip to the drive
+controller and costs tens of milliseconds whatever else the machine is doing.
+That is an inherent cost of the reading rather than contention, and it is why
 those rails are timed at startup and then polled every fifth tick.
+
+It is also the only row that does not reproduce. Two identical idle runs put its
+p95 at 57 ms and 30 ms, and the whole-tick tail moved with it. The cause is that
+throttling decision: each rail is timed *once*, at startup, so which ones are
+classified slow depends on what the machine happened to be doing in that first
+second. Everything else here repeats to within a fraction of a millisecond.
 
 Opening the Processes page changes the picture entirely:
 
