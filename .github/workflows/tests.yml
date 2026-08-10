@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+# A newer push makes an in-flight run of the same branch pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # One Python version failing should not hide the result of the others.
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # No GTK, libadwaita or pygobject: the suite reads a fake /proc and /sys
+      # and never imports the UI, so psutil is the collectors' only dependency.
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pytest psutil
+
+      - name: Run the test suite
+        run: make test
+
+      # Complements the suite rather than repeating it. The fixtures describe
+      # one particular machine's hardware; this samples the runner's, which has
+      # no k10temp, no Intel GPU and virtualised disks. It is the only place the
+      # "degrade rather than raise" contract is exercised against a machine
+      # nothing like the one this was written on.
+      - name: Sample the runner's own kernel
+        run: make check

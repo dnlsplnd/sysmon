@@ -1,5 +1,7 @@
 # sysmon
 
+[![tests](https://github.com/dnlsplnd/sysmon/actions/workflows/tests.yml/badge.svg)](https://github.com/dnlsplnd/sysmon/actions/workflows/tests.yml)
+
 A native GTK4/libadwaita system monitor. Everything is read straight from
 `/proc`, `/sys` and DRM `fdinfo`; graphs are drawn with Cairo.
 
@@ -192,6 +194,12 @@ The suite is checked by mutation: breaking de-duplication, reversing the
 frequency preference, computing used memory from free, accepting implausible
 thresholds, changing the sector size, and removing the guard on a counter going
 backwards are each caught by a test that names the behaviour.
+
+CI runs it on every push, across three Python versions, with nothing installed
+but `pytest` and `psutil` — the UI is never imported, so no GTK is involved. It
+then runs `make check` against the runner's own kernel, which has no `k10temp`,
+no Intel GPU and virtualised disks: the one place the *degrade rather than
+raise* contract is exercised against hardware nothing like this box.
 
 ## Layout
 
