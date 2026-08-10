@@ -150,9 +150,33 @@ and is simply absent rather than faked.
 
 ## Cost
 
-Sampling all seven collectors costs about **35 ms per tick** on this box (Ryzen
-1700X, ~480 processes), down from 183 ms in the first working version. A monitor
-that perturbs what it measures is not much use, so:
+A monitor that perturbs what it measures is not much use, so the sampling budget
+is watched. Measured over 60 ticks at the default one-second interval on this box
+(Ryzen 1700X, 16 threads, 456 processes), while it happened to be busy with an
+unrelated job at load average ~22 — an idle machine is faster throughout:
+
+| Collector | Median | p95 |
+|---|---|---|
+| GPU | 9.3 ms | 39 ms |
+| Network | 4.2 ms | 7 ms |
+| Sensors | 1.6 ms | 104 ms |
+| CPU | 1.1 ms | 1.4 ms |
+| Disks | 1.0 ms | 13 ms |
+| Processes *(page closed)* | 0.9 ms | 1.2 ms |
+| Memory | 0.2 ms | 0.3 ms |
+| **whole tick** | **35 ms** | **124 ms** |
+
+The gap between median and p95 is design rather than noise: several collectors
+defer their expensive work to every fourth or fifth tick, so most ticks skip it
+and the occasional one pays for all of them at once. The single number this
+section used to quote hid that, and hid which page was open.
+
+Opening the Processes page changes the picture completely — the table costs
+**~116 ms** on its own and takes the tick to **~149 ms**, four times the cheap
+path. That is the whole reason it is built only while that page is on screen.
+
+The first working version cost 183 ms per tick unconditionally. What bought the
+difference:
 
 - The full process table is only built while the Processes page is on screen;
   otherwise a process count is one `readdir`.
