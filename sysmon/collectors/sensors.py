@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import statistics
 import time
+from collections import deque
 from typing import Any
 
 from .base import Collector
@@ -23,6 +24,15 @@ _SLOW_RAIL_EVERY = 5
 # costs about 27 ms more at startup on a box with ten rails, which is nothing
 # next to building the window.
 _SLOW_RAIL_PROBES = 3
+
+# Startup timing only measures what a rail *typically* costs, which is the wrong
+# question for a rail that is cheap almost always and dreadful now and then --
+# this box's Wi-Fi temperature reads in 1 ms and occasionally in 100. Such a rail
+# passes the startup check honestly and then dominates the tail anyway. So the
+# cost of every unthrottled read is watched, and a rail that exceeds the
+# threshold this often within this many reads joins the throttled set.
+_SLOW_RAIL_WINDOW = 20
+_SLOW_RAIL_STRIKES = 3
 
 # hwmon input files follow "<class><index>_input"; each class has its own scale.
 _CLASSES = {
@@ -62,6 +72,9 @@ class SensorCollector(Collector):
         # Last good value for throttled rails, so they keep reporting on the
         # ticks they are skipped rather than blinking out.
         self._cached: dict[str, float] = {}
+        # Recent read costs per unthrottled rail, for promotion. Throttled rails
+        # are not tracked: they have already been judged.
+        self._costs: dict[str, deque[float]] = {}
 
     @staticmethod
     def _plausible(raw: int | None, spec: dict[str, Any], scale: float) -> int | None:
@@ -159,6 +172,23 @@ class SensorCollector(Collector):
                 )
         return chips
 
+    def _note_cost(self, reading: dict[str, Any], cost: float) -> None:
+        """Watch an unthrottled rail, and throttle it if it keeps being slow.
+
+        Judging a rail on how it usually behaves misses the one that is usually
+        instant and occasionally blocks for a tenth of a second, so the decision
+        made at startup is not the last word.
+
+        Promotion is one way only. A rail that has demonstrated it can stall has
+        not stopped being able to, whatever its next few reads look like, and
+        demoting it again would only put the spike back on an unpredictable tick.
+        """
+        window = self._costs.setdefault(reading["key"], deque(maxlen=_SLOW_RAIL_WINDOW))
+        window.append(cost)
+        if sum(1 for value in window if value > _SLOW_RAIL_SECONDS) >= _SLOW_RAIL_STRIKES:
+            reading["slow"] = True
+            del self._costs[reading["key"]]
+
     def sample(self, now: float) -> dict[str, Any]:
         chips = []
         hottest: tuple[str, float] | None = None
@@ -172,9 +202,16 @@ class SensorCollector(Collector):
                 if reading["slow"] and not refresh_slow and key in self._cached:
                     value = self._cached[key]
                 else:
+                    started = time.perf_counter()
                     raw = read_int(reading["path"])
                     if raw is None:
                         continue
+                    # Only unthrottled reads are timed, and the promotion this
+                    # may trigger takes effect immediately: the value read here
+                    # is then cached by the branch below, so the very next tick
+                    # already skips the rail.
+                    if not reading["slow"]:
+                        self._note_cost(reading, time.perf_counter() - started)
                     value = raw / reading["scale"]
                     if reading["slow"]:
                         self._cached[key] = value

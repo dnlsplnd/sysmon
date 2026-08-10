@@ -152,30 +152,30 @@ and is simply absent rather than faked.
 
 A monitor that perturbs what it measures is not much use, so the sampling budget
 is watched. Measured over 60 ticks at the default one-second interval on this box
-(Ryzen 1700X, 16 threads): idle at 425 processes over three runs, and at 456
-processes while a 16-thread video render held the load average at ~22.
+(Ryzen 1700X, 16 threads, 425 processes), idle and again against sixteen busy
+loops. Idle figures are the range over two runs:
 
 | Collector | Idle median | Idle p95 | Loaded median | Loaded p95 |
 |---|---|---|---|---|
-| Network | 4.5 ms | 4.8 ms | 4.2 ms | 7 ms |
-| GPU | 4.4 ms | 23 ms | 9.3 ms | 39 ms |
-| CPU | 1.4 ms | 1.6 ms | 1.1 ms | 1.4 ms |
-| Sensors | 1.2 ms | 87–101 ms | 1.6 ms | 104 ms |
-| Disks | 1.1 ms | 13 ms | 1.0 ms | 13 ms |
-| Processes *(page closed)* | 0.8 ms | 0.9 ms | 0.9 ms | 1.2 ms |
-| Memory | 0.3 ms | 0.3 ms | 0.2 ms | 0.3 ms |
-| **whole tick** | **18–31 ms** | **102–114 ms** | **35 ms** | **124 ms** |
+| Network | 4.5 ms | 5.0 ms | 9.1 ms | 11 ms |
+| GPU | 4.4 ms | 23 ms | 6.4 ms | 37 ms |
+| CPU | 1.4 ms | 1.5 ms | 1.0 ms | 1.1 ms |
+| Disks | 1.1 ms | 14 ms | 0.9 ms | 13 ms |
+| Processes *(page closed)* | 0.7 ms | 1.0 ms | 0.7 ms | 3.5 ms |
+| Sensors | 0.3 ms | 56–68 ms | 0.2 ms | 27 ms |
+| Memory | 0.3 ms | 0.3 ms | 0.2 ms | 0.2 ms |
+| **whole tick** | **13 ms** | **78–80 ms** | **21 ms** | **85 ms** |
 
 The whole tick is dearer than the sum of the medians because the collectors that
 defer work do not defer it to the *same* tick, so most ticks carry somebody's
 periodic spike.
 
 Both columns are worth keeping, because a system monitor is most often looked at
-precisely when the machine is busy. A tick costs 14 ms on a quiet box and 35 ms
-on a fully loaded one — and nearly all of that difference is the GPU collector,
-whose `/proc` walk is the only part of a tick that contends with other processes
-for the same directory reads. Network, disks and memory barely move: they are
-bound by a fixed number of syscalls rather than by what else is running.
+precisely when the machine is busy. Contention lands almost entirely on the two
+collectors that make the most kernel calls — the GPU collector's `/proc` walk for
+DRM clients, and the network collector's per-interface sysfs reads. CPU, disks
+and memory do not move at all: they cost a fixed handful of reads regardless of
+what else is running.
 
 The gap between median and p95 is design rather than noise. Several collectors
 defer expensive work to every fourth or fifth tick, so most ticks skip it and the
@@ -191,25 +191,32 @@ round-trip to its controller and costs ~12 ms whether the last read was one
 second ago or five, so throttling those three rails to every fifth tick is a
 straight win — 7 ms per second of wall clock instead of 36.
 
-The second is one rail the throttle does not catch. This box's Wi-Fi temperature
-(`mt7921`) reads in 1 ms almost always and 90–110 ms every few seconds, so it is
-classified fast on its median — correctly, by that measure — and then dominates
-the 95th percentile anyway. Classification asks what a rail typically costs; this
-rail's problem is variance, not typical cost.
+Which rails get that treatment is decided twice over, because one decision is not
+enough.
 
-Which rails get throttled is decided once, at startup, by timing each one. That
-timing is the median of three probes rather than a single reading: one sample is
-at the mercy of whatever the machine was doing in that instant, and a monitor
-started on a busy box used to throttle cheap rails for the life of the process.
-The median makes the decision identical run to run, idle or under load — it costs
-about 27 ms more at startup, which is nothing beside building the window.
+At startup each rail is timed, as the median of three probes rather than a single
+reading. A single sample is at the mercy of whatever the machine was doing in
+that instant, and a monitor started on a busy box used to throttle a
+microsecond-cheap rail for the life of the process. The median makes the choice
+identical run to run, idle or loaded, for about 27 ms more startup — nothing
+beside building the window.
+
+That still only measures what a rail *typically* costs, which is the wrong
+question for one that is cheap almost always and dreadful occasionally: this
+box's Wi-Fi temperature (`mt7921`) reads in 1 ms and, every few seconds, in
+90–110 ms. It passes the startup check honestly and would then dominate the tail.
+So the cost of every unthrottled read is watched as well, and a rail that blows
+the threshold three times within twenty reads joins the throttled set. The Wi-Fi
+rail gets there about eleven seconds in, which takes the sensors 95th percentile
+from ~90 ms down to ~60 and the median tick from 1.7 ms to 0.4 ms. Promotion is
+one way only: a rail that has shown it can stall has not stopped being able to.
 
 Opening the Processes page changes the picture entirely:
 
 | | Idle | Loaded |
 |---|---|---|
-| the table alone | 82 ms | 116 ms |
-| whole tick | 100 ms | 149 ms |
+| the table alone | 80 ms | 170 ms |
+| whole tick | 90 ms | 201 ms |
 
 Seven times the idle cheap path, and the one figure here large enough to be felt.
 That is the whole reason the table is built only while that page is on screen.

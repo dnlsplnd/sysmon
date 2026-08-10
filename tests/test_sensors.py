@@ -321,6 +321,118 @@ def test_a_rail_that_stops_reading_partway_through_is_dropped(kernel):
     assert SensorCollector().chips == []
 
 
+# ------------------------------------------------------ promotion at runtime
+
+
+class Clock:
+    """A perf_counter whose every timed span lasts exactly ``duration``.
+
+    Both the startup probe and the per-read timing call perf_counter in pairs,
+    so returning start then start+duration makes each measured span controllable.
+    """
+
+    def __init__(self, duration=0.0001):
+        self.duration = duration
+        self._now = 0.0
+        self._started = None
+
+    def perf_counter(self):
+        if self._started is None:
+            self._started = self._now
+            return self._now
+        end = self._started + self.duration
+        self._now = end + 1.0
+        self._started = None
+        return end
+
+
+def _rail_of(collector):
+    return collector.chips[0]["readings"][0]
+
+
+def _wire(kernel, monkeypatch, chip="mt7921_phy0"):
+    kernel.write_many(f"/sys/class/hwmon/hwmon0", {"name": chip, "temp1_input": "40000"})
+    kernel.patch(sensors_module)
+    clock = Clock()
+    monkeypatch.setattr(
+        sensors_module, "time", SimpleNamespace(perf_counter=clock.perf_counter)
+    )
+    return clock
+
+
+def test_a_rail_that_keeps_blocking_is_promoted(kernel, monkeypatch):
+    """The Wi-Fi rail case: honestly fast at startup, but it stalls periodically."""
+    clock = _wire(kernel, monkeypatch)
+    collector = SensorCollector()
+    rail = _rail_of(collector)
+    assert rail["slow"] is False
+
+    clock.duration = 0.050
+    for tick in range(sensors_module._SLOW_RAIL_STRIKES):
+        collector.sample(now=float(tick))
+    assert rail["slow"] is True
+
+
+def test_one_slow_read_does_not_promote(kernel, monkeypatch):
+    clock = _wire(kernel, monkeypatch)
+    collector = SensorCollector()
+
+    clock.duration = 0.050
+    collector.sample(now=0.0)
+    clock.duration = 0.0001
+    collector.sample(now=1.0)
+    assert _rail_of(collector)["slow"] is False
+
+
+def test_strikes_age_out_of_the_window(kernel, monkeypatch):
+    """Two stalls hours apart are not a pattern, and must not accumulate."""
+    clock = _wire(kernel, monkeypatch)
+    collector = SensorCollector()
+    rail = _rail_of(collector)
+
+    tick = 0
+    for _ in range(sensors_module._SLOW_RAIL_STRIKES - 1):
+        clock.duration = 0.050
+        collector.sample(now=float(tick)); tick += 1
+
+    # A full window of clean reads pushes those strikes out of memory.
+    clock.duration = 0.0001
+    for _ in range(sensors_module._SLOW_RAIL_WINDOW):
+        collector.sample(now=float(tick)); tick += 1
+
+    clock.duration = 0.050
+    collector.sample(now=float(tick))
+    assert rail["slow"] is False
+
+
+def test_a_promoted_rail_is_then_served_from_cache(kernel, monkeypatch):
+    """Promotion has to actually take effect, not merely set a flag."""
+    clock = _wire(kernel, monkeypatch)
+    collector = SensorCollector()
+
+    clock.duration = 0.050
+    for tick in range(sensors_module._SLOW_RAIL_STRIKES):
+        collector.sample(now=float(tick))
+    assert _rail_of(collector)["slow"] is True
+
+    # _tick is now at STRIKES; the next tick is not a refresh one, so a changed
+    # file must not be picked up.
+    kernel.write("/sys/class/hwmon/hwmon0/temp1_input", "90000")
+    value = collector.sample(now=99.0)["chips"][0]["values"][0]["value"]
+    assert value == pytest.approx(40.0)
+
+
+def test_a_rail_already_throttled_is_not_re_timed(kernel, monkeypatch):
+    """Throttled rails have been judged; timing them again would prove nothing."""
+    clock = _wire(kernel, monkeypatch, chip="nvme")
+    clock.duration = 0.050
+    collector = SensorCollector()
+    assert _rail_of(collector)["slow"] is True
+
+    collector.sample(now=0.0)
+    assert collector._costs == {}
+
+
 def test_a_fast_rail_is_read_every_tick(box):
     collector = SensorCollector()
     assert _rail(collector.sample(now=0.0), "k10temp", "Tctl")["value"] == pytest.approx(70.0)
