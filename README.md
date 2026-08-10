@@ -71,7 +71,8 @@ answer to exactly this, and is set to the bundled icon directory, so the tray
 icon is right whether or not `make install` has been run.
 
 Requires `python3-gobject`, GTK 4, libadwaita, `pycairo` and `psutil` — all
-present on a stock Fedora KDE/GNOME install.
+present on a stock Fedora KDE/GNOME install. Running the tests additionally
+needs `pytest`; nothing else does.
 
 ## Pages
 
@@ -160,6 +161,38 @@ that perturbs what it measures is not much use, so:
   round-trip to the drive controller, not a memory read — are timed at startup
   and polled less often.
 
+## Tests
+
+```
+make test
+```
+
+The collectors parse kernel text formats, which is exactly the code that breaks
+silently: a column that moves, a unit that changes, a file that starts reporting
+`0`. So the suite gives each collector a fake `/proc` and `/sys` built per test
+and reads that instead of the machine it runs on — which means it asserts real
+numbers rather than "did not crash", and gives the same result on a box with no
+Intel GPU, no zram and no `k10temp`.
+
+Redirection works because every collector reaches the kernel through
+`util.read_text`, `read_int` and `listdir`. Those are imported *by name*, so
+`tests/conftest.py` rebinds them inside each collector's own namespace; the two
+that also call `os` directly get a proxy with the same rerouting. Nothing under
+test can reach the real kernel by accident.
+
+What is pinned is mostly the reasoning in *How the numbers are obtained* above,
+since that is where a plausible-looking wrong answer is easiest to produce —
+`cpuinfo_avg_freq` beating `scaling_cur_freq` when both exist, DRM clients
+de-duplicated by `drm-client-id`, the busiest engine rather than the sum, busy
+time normalised by engine capacity, a gated clock falling back rather than
+reporting 0 MHz, memory used as total minus *available*, disk utilisation from
+the `io_ticks` delta, and the 65261 °C threshold being rejected as a sentinel.
+
+The suite is checked by mutation: breaking de-duplication, reversing the
+frequency preference, computing used memory from free, accepting implausible
+thresholds, changing the sector size, and removing the guard on a counter going
+backwards are each caught by a test that names the behaviour.
+
 ## Layout
 
 ```
@@ -173,6 +206,7 @@ sysmon/
   hub.py          sampling thread; history is written on the GTK main thread
   history.py      fixed-length series behind every graph
 packaging/        launcher, desktop and autostart templates; Makefile fills them in
+tests/            one module per collector; conftest.py builds the fake kernel
 ```
 
 The threading contract is narrow on purpose: the worker thread only touches

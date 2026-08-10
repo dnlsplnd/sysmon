@@ -28,7 +28,7 @@ AUTOSTARTDIR ?= $(HOME)/.config/autostart
 ICON := sysmon/ui/icons/hicolor/scalable/apps/$(APP_ID).svg
 
 .PHONY: help install uninstall install-autostart uninstall-autostart \
-        update-caches run check
+        update-caches run test check
 
 help:
 	@echo 'make install              install to $(PREFIX)'
@@ -37,6 +37,7 @@ help:
 	@echo 'make install-autostart   start in the tray at login'
 	@echo 'make uninstall-autostart stop doing that'
 	@echo 'make run                 run from this checkout, without installing'
+	@echo 'make test                run the test suite'
 	@echo 'make check               byte-compile and sample every collector once'
 
 install:
@@ -102,6 +103,13 @@ update-caches:
 run:
 	@$(PYTHON) -m sysmon
 
+# The suite reads a fake /proc and /sys, so it neither needs this machine to
+# have any particular hardware nor notices what it does have.
+test:
+	@$(PYTHON) -m pytest
+
+# Complements `test`: this one samples the real kernel, so it catches a format
+# this box actually has that the fixtures do not cover.
 check:
 	@$(PYTHON) -m compileall -q sysmon
 	@$(PYTHON) -c 'import time; from sysmon.collectors import *; \

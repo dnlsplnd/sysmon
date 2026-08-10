@@ -200,11 +200,17 @@ class DiskCollector(Collector):
         run every tick; the expensive metadata walk only reruns when the set of
         block devices actually changed.
         """
-        current = {name for name in listdir("/sys/block") if self._is_physical(name)}
-        known = set(self.devices)
-        # A newly-inserted device also has to report a non-zero size before
-        # _discover keeps it, so re-scan whenever the raw sets disagree.
-        if current != known:
+        # The size check mirrors _discover's own filter, and is what keeps this
+        # comparison honest: a card reader with no media is physical but has no
+        # size, so _discover drops it. Comparing without the check would leave
+        # the two sets permanently disagreeing, and the expensive metadata walk
+        # would then rerun on every single tick for as long as the slot is empty.
+        current = {
+            name
+            for name in listdir("/sys/block")
+            if self._is_physical(name) and read_int(f"/sys/block/{name}/size")
+        }
+        if current != set(self.devices):
             self.devices = self._discover()
 
     def sample(self, now: float) -> dict[str, Any]:

@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any
 
-from .base import Collector
+from .base import Collector, RateTracker
 from ..util import listdir, read_int, read_text
 
 # /proc/stat column order after the "cpuN" label.
@@ -32,7 +32,7 @@ class CpuCollector(Collector):
     def __init__(self) -> None:
         super().__init__()
         self._prev_cores: dict[str, list[int]] = {}
-        self._prev_totals: dict[str, int] = {}
+        self._counters = RateTracker()
         self.core_count = os.cpu_count() or 1
         self.model = self._read_model()
         self.topology = self._read_topology()
@@ -168,16 +168,13 @@ class CpuCollector(Collector):
         known = [freq for freq in frequencies if freq is not None]
         temps = self._temperatures()
 
-        # Counters in /proc/stat are cumulative; report per-second increments.
+        # Counters in /proc/stat are cumulative. Dividing by the elapsed time
+        # rather than reporting the raw increment is what makes these per-second
+        # figures rather than per-tick ones, which only agree at --interval 1.
         rates: dict[str, float | None] = {}
         for key in ("ctxt", "processes", "intr"):
             value = extras.get(key)
-            if value is None:
-                rates[key] = None
-                continue
-            previous = self._prev_totals.get(key)
-            self._prev_totals[key] = value
-            rates[key] = None if previous is None else max(0, value - previous)
+            rates[key] = None if value is None else self._counters.update(key, value, now)
 
         loadavg = (read_text("/proc/loadavg", "") or "").split()
         uptime_raw = (read_text("/proc/uptime", "") or "0").split()
