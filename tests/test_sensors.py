@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from sysmon.collectors import sensors as sensors_module
@@ -234,6 +236,89 @@ def test_a_slow_rail_is_served_from_cache_between_refreshes(box):
 
     # Fifth tick: the throttle lets a real read through.
     assert _rail(collector.sample(now=4.0), "nvme", "Composite")["value"] == pytest.approx(55.0)
+
+
+# ------------------------------------------------- slow-rail classification
+
+
+def _fake_clock(monkeypatch, durations):
+    """Make each probe appear to take the given number of seconds.
+
+    _probe calls perf_counter twice per probe, so each duration becomes a pair.
+    """
+    ticks = []
+    at = 0.0
+    for duration in durations:
+        ticks += [at, at + duration]
+        at += duration + 1.0
+    monkeypatch.setattr(
+        sensors_module, "time", SimpleNamespace(perf_counter=lambda: ticks.pop(0))
+    )
+
+
+def test_a_rail_is_timed_more_than_once(kernel):
+    kernel.write_many("/sys/class/hwmon/hwmon0", {"name": "nvme", "temp1_input": "45000"})
+    kernel.patch(sensors_module)
+
+    reads = []
+    original = sensors_module.read_int
+    kernel.monkeypatch.setattr(
+        sensors_module, "read_int", lambda p, d=None: (reads.append(p), original(p, d))[1]
+    )
+    SensorCollector()
+    probes = [p for p in reads if p.endswith("temp1_input")]
+    assert len(probes) == sensors_module._SLOW_RAIL_PROBES
+
+
+def test_one_slow_probe_does_not_throttle_a_fast_rail(kernel, monkeypatch):
+    """The bug this replaced: a hiccup during the single probe was permanent.
+
+    A 50 ms first reading followed by two cheap ones is a fast rail that was
+    unlucky, not a slow one, so the median must decide and the rail must stay
+    unthrottled. The outlier goes first deliberately: that is where it lands in
+    practice, on a cold read or a busy startup.
+    """
+    kernel.write_many("/sys/class/hwmon/hwmon0", {"name": "nct6775", "temp1_input": "40000"})
+    kernel.patch(sensors_module)
+    _fake_clock(monkeypatch, [0.050, 0.0001, 0.0001])
+
+    assert SensorCollector().chips[0]["readings"][0]["slow"] is False
+
+
+def test_one_fast_probe_does_not_rescue_a_slow_rail(kernel, monkeypatch):
+    """The mirror image: one cheap first read must not unthrottle an NVMe rail."""
+    kernel.write_many("/sys/class/hwmon/hwmon0", {"name": "nvme", "temp1_input": "45000"})
+    kernel.patch(sensors_module)
+    _fake_clock(monkeypatch, [0.0001, 0.004, 0.004])
+
+    assert SensorCollector().chips[0]["readings"][0]["slow"] is True
+
+
+def test_a_consistently_cheap_rail_is_not_throttled(kernel, monkeypatch):
+    kernel.write_many("/sys/class/hwmon/hwmon0", {"name": "k10temp", "temp1_input": "70000"})
+    kernel.patch(sensors_module)
+    _fake_clock(monkeypatch, [0.0001, 0.0001, 0.0001])
+
+    assert SensorCollector().chips[0]["readings"][0]["slow"] is False
+
+
+def test_a_rail_that_stops_reading_partway_through_is_dropped(kernel):
+    """Probing must abandon the rail rather than average in a failed read."""
+    kernel.write_many("/sys/class/hwmon/hwmon0", {"name": "nvme", "temp1_input": "45000"})
+    kernel.patch(sensors_module)
+
+    calls = {"n": 0}
+    original = sensors_module.read_int
+
+    def flaky(path, default=None):
+        if path.endswith("temp1_input"):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                return None
+        return original(path, default)
+
+    kernel.monkeypatch.setattr(sensors_module, "read_int", flaky)
+    assert SensorCollector().chips == []
 
 
 def test_a_fast_rail_is_read_every_tick(box):

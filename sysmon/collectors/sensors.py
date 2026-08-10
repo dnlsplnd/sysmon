@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import statistics
 import time
 from typing import Any
 
@@ -15,6 +16,13 @@ from ..util import listdir, read_int, read_text
 # chatty device cannot dominate the sampling budget.
 _SLOW_RAIL_SECONDS = 0.002
 _SLOW_RAIL_EVERY = 5
+
+# Probes per rail when deciding that. One is not enough: the decision is made
+# once and then governs every later tick, so a single sample taken during a
+# scheduling hiccup throttles a cheap rail for the life of the process. Three
+# costs about 27 ms more at startup on a box with ten rails, which is nothing
+# next to building the window.
+_SLOW_RAIL_PROBES = 3
 
 # hwmon input files follow "<class><index>_input"; each class has its own scale.
 _CLASSES = {
@@ -72,6 +80,29 @@ class SensorCollector(Collector):
                 return None
         return raw
 
+    @staticmethod
+    def _probe(path: str) -> float | None:
+        """Median seconds to read a rail, or None if it cannot be read.
+
+        Timed repeatedly on purpose. This one measurement decides how often the
+        rail is polled for the rest of the process's life, so a single sample is
+        at the mercy of whatever the machine was doing in that instant -- start
+        the monitor on a busy box and a microsecond-cheap rail can measure slow
+        and stay throttled forever.
+
+        The median rather than the mean or the minimum: the first read of an
+        NVMe rail costs several times the ones after it, and a mean would let
+        that one cold read decide, while a minimum would ignore a rail that is
+        usually slow and occasionally cached.
+        """
+        costs = []
+        for _ in range(_SLOW_RAIL_PROBES):
+            started = time.perf_counter()
+            if read_int(path) is None:
+                return None
+            costs.append(time.perf_counter() - started)
+        return statistics.median(costs)
+
     def _discover(self) -> list[dict[str, Any]]:
         chips = []
         for entry in listdir("/sys/class/hwmon"):
@@ -90,12 +121,11 @@ class SensorCollector(Collector):
                 if not spec:
                     continue
                 # Skip rails the kernel exposes but refuses to read (EACCES on
-                # RAPL-style counters, EIO on a powered-down device). Time the
-                # probe so slow rails can be identified and throttled.
-                probe_started = time.perf_counter()
-                if read_int(f"{base}/{filename}") is None:
+                # RAPL-style counters, EIO on a powered-down device), and time
+                # the ones that do read so slow rails can be throttled.
+                cost = self._probe(f"{base}/{filename}")
+                if cost is None:
                     continue
-                cost = time.perf_counter() - probe_started
                 prefix = filename[: -len("_input")]
                 label = read_text(f"{base}/{prefix}_label") or prefix
                 scale = spec["scale"]
