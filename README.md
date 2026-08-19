@@ -17,6 +17,74 @@ sysmon --hidden         # start in the tray, without a window
 Only one instance runs at a time. Launching again raises the existing window,
 and `--page` switches it rather than being ignored.
 
+## Dependencies
+
+All of these are distribution packages. There is nothing to `pip install`, no
+virtualenv and no build step — the collectors read the kernel directly, so
+`psutil` is the only third-party Python library involved at all.
+
+| Needs | Why | Minimum |
+|---|---|---|
+| Python | | 3.11 |
+| PyGObject | the GTK bindings | 3.42 |
+| GTK | the toolkit | **4.12**, for `CssProvider.load_from_string` |
+| libadwaita | window, dialogs and styling | **1.5**, for `Adw.AlertDialog` |
+| pycairo | every graph is drawn through it | 1.20 |
+| psutil | filesystems, sockets and the process table | 5.9 |
+
+The two versions in bold are hard floors. libadwaita 1.5 is from spring 2024,
+so a distribution older than that will install the packages below and still
+fail on startup.
+
+**Fedora**
+
+```
+sudo dnf install python3-gobject gtk4 libadwaita python3-cairo python3-psutil
+```
+
+**Debian / Ubuntu**
+
+```
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 python3-psutil
+```
+
+**Arch**
+
+```
+sudo pacman -S python-gobject gtk4 libadwaita python-cairo python-psutil
+```
+
+On anything else, four things have to be present: the GTK 4 and libadwaita
+libraries, their GObject-introspection typelibs, PyGObject, and pycairo. Some
+distributions ship the typelibs separately from the libraries — that is what
+`gir1.2-adw-1` is above, and openSUSE calls the same thing
+`typelib-1_0-Adw-1` — which is the usual reason an install that looks complete
+still cannot start.
+
+Then check what you actually have:
+
+```
+python3 - <<'EOF'
+import gi
+gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
+from gi.repository import Gtk, Adw
+import cairo, psutil, sys
+print("python    ", sys.version.split()[0])
+print("GTK       ", f"{Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}")
+print("libadwaita", f"{Adw.get_major_version()}.{Adw.get_minor_version()}.{Adw.get_micro_version()}")
+print("pycairo   ", cairo.version)
+print("psutil    ", psutil.__version__)
+EOF
+```
+
+Anything missing fails by name. `ValueError: Namespace Adw not available` is
+the typelib rather than the library itself; `ModuleNotFoundError: No module
+named 'gi'` is PyGObject.
+
+The test suite additionally needs `pytest`, and nothing else does — it reads a
+fake `/proc` and never imports the UI, so `pip install pytest psutil` is enough
+to run it on a machine with no GTK at all. That is exactly what CI does.
+
 ## Installing
 
 ```
@@ -72,10 +140,6 @@ checkout that was never installed would show a blank in the panel — the icon
 exists only inside the package at that point. `IconThemePath` is the spec's
 answer to exactly this, and is set to the bundled icon directory, so the tray
 icon is right whether or not `make install` has been run.
-
-Requires `python3-gobject`, GTK 4, libadwaita, `pycairo` and `psutil` — all
-present on a stock Fedora KDE/GNOME install. Running the tests additionally
-needs `pytest`; nothing else does.
 
 ## Pages
 
